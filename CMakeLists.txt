@@ -12,6 +12,8 @@ set(CMAKE_C_STANDARD_REQUIRED True)
 set(SOURCES
     src/main.c
     src/network.c
+    src/client.c
+    src/server.c
 )
 
 # Include header files

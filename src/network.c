@@ -8,6 +8,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+
 /**
  * @brief connects client socket to a server socket
  *
@@ -30,7 +31,7 @@ int connectClientSocket(int sockfd, struct sockaddr_in *config){
  * @param port port the client will connect to the server on
  * @return client socket config
  */
-struct sockaddr_in *getClientConfig(int port, char ip[16]) {
+struct sockaddr_in *getClientConfig(int port, char *ip) {
   static struct sockaddr_in config;
   static int initialized = 0;
 
@@ -100,7 +101,7 @@ void bindSocket(int serverSockfd, struct sockaddr_in *config) {
     close(serverSockfd);
     exit(EXIT_FAILURE);
   } else {
-    printf("Successfully binded socket");
+    printf("Successfully binded socket\n");
   }
 }
 
