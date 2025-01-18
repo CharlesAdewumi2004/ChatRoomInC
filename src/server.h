@@ -3,81 +3,68 @@
 
 #include <pthread.h> // For thread-related types and functions
 
-#define MAX_CLIENTS 50 // Maximum number of connected clients
+#define MAX_CLIENTS 50 ///< Maximum number of clients that can connect.
+#define MAX_USERNAME_LENGTH 20 ///< Maximum length of a username.
 
 /**
- * @brief Structure to store client information.
+ * @struct ClientInfo
+ * @brief Stores information about a connected client.
  */
 typedef struct {
-    int sockfd;           // Socket file descriptor
-    char username[20];    // Username
+    int sockfd; ///< Socket file descriptor for the client.
+    char username[MAX_USERNAME_LENGTH]; ///< Username of the client.
 } ClientInfo;
-
-// **Client Management Functions**
 
 /**
  * @brief Initializes the client list.
- *        Sets all `sockfd` to -1 and clears usernames.
+ * 
+ * Sets all `sockfd` values to -1 and clears all usernames.
  */
 void initializeClients();
 
 /**
- * @brief Validates and sets the username for a client.
- *
+ * @brief Validates and sets a username for a client.
+ * 
  * @param sockfd The client's socket file descriptor.
- * @param username The username to validate and set.
- * @return int Returns 1 if the username is successfully set, 0 otherwise.
+ * @param username The username to validate and assign.
+ * @return int Returns 1 if the username is successfully set, or 0 if invalid or already taken.
  */
 int validateAndSetUsername(int sockfd, const char *username);
 
 /**
  * @brief Handles multiple attempts to set a username for a client.
- *
+ * 
  * @param sockfd The client's socket file descriptor.
- * @return int Returns 1 if a username is successfully set, 0 otherwise.
+ * @return int Returns 1 if a username is successfully set, or 0 if the client disconnects.
  */
 int attemptToSetUsername(int sockfd);
 
 /**
- * @brief Finds a client's username by their socket file descriptor.
- *
- * @param sockfd The socket file descriptor of the client.
- * @return const char* Returns the username if found, or NULL otherwise.
- */
-const char* findUsernameBySockfd(int sockfd);
-
-/**
  * @brief Removes a client from the client list.
- *
- * @param sockfd The socket file descriptor of the client to remove.
+ * 
+ * Marks the client's slot as unused and clears the associated username.
+ * 
+ * @param sockfd The client's socket file descriptor.
  */
 void removeClient(int sockfd);
 
-// **Client Connection and Message Handling Functions**
-
-/**
- * @brief Handles client communication with the server.
- *
- * @param arg Pointer to the socket file descriptor of the client.
- * @return void* Always returns NULL.
- */
-void *handleClientServer(void *arg);
-
 /**
  * @brief Broadcasts a message to all connected clients except the sender.
- *
+ * 
  * @param message The message to broadcast.
  * @param sender_sockfd The socket file descriptor of the sender.
  */
 void broadcastMessage(const char *message, int sender_sockfd);
 
 /**
- * @brief Receives messages from a client and processes them.
- *
- * @param sockfd The socket file descriptor of the client.
+ * @brief Handles a client's connection.
+ * 
+ * Manages username setup and message handling for a connected client.
+ * 
+ * @param arg Pointer to the client's socket file descriptor.
+ * @return void* Always returns NULL.
  */
-void recvMessageServer(int sockfd);
+void *handleClient(void *arg);
 
 #endif // SERVER_H
-
 
