@@ -4,135 +4,177 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <pthread.h>
+#include <arpa/inet.h>
+
+#define MAX_CLIENTS 100
 
 ClientInfo clients[MAX_CLIENTS]; // Global array to store client info
+pthread_mutex_t client_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 /**
  * @brief Initializes the client list.
  */
 void initializeClients() {
     for (int i = 0; i < MAX_CLIENTS; i++) {
-        clients[i].sockfd = -1; 
+        clients[i].sockfd = -1;
         memset(clients[i].username, 0, sizeof(clients[i].username));
     }
 }
 
 /**
  * @brief Validates and sets the client's username.
- *
- * @param sockfd The client's socket file descriptor.
- * @param username The username to validate and set.
- * @return int Returns 1 on success, 0 if the username is invalid or already taken.
  */
 int validateAndSetUsername(int sockfd, const char *username) {
-    // Check if the username already exists
-    printf("test %s\n", username);
-   
+    pthread_mutex_lock(&client_mutex);
+
+    // Check for duplicate username
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (clients[i].sockfd != -1 && strcmp(clients[i].username, username) == 0) {
-            printf("%d", strcmp(clients[i].username, username));
-            printf("%d", sockfd);
-            return 0; // Username already exists
+            pthread_mutex_unlock(&client_mutex);
+            printf("Username '%s' already taken.\n", username);
+            return 0;
         }
     }
 
-    // Add the username to the clients list
+    // Add username to client list
     for (int i = 0; i < MAX_CLIENTS; i++) {
-        if (clients[i].sockfd == -1) { // Find an empty slot
+        if (clients[i].sockfd == -1) {
             clients[i].sockfd = sockfd;
             strncpy(clients[i].username, username, sizeof(clients[i].username) - 1);
-            clients[i].username[sizeof(clients[i].username) - 1] = '\0'; // Ensure null-termination
-            return 1; // Success
+            clients[i].username[sizeof(clients[i].username) - 1] = '\0';
+            pthread_mutex_unlock(&client_mutex);
+            return 1;
         }
     }
 
-    return 0; // No space available
-}
-
-/**
- * @brief Finds a client's username by their socket file descriptor.
- *
- * @param sockfd The socket file descriptor of the client.
- * @return const char* The username of the client, or NULL if not found.
- */
-const char* findUsernameBySockfd(int sockfd) {
-    for (int i = 0; i < MAX_CLIENTS; i++) {
-        if (clients[i].sockfd == sockfd) {
-            return clients[i].username;
-        }
-    }
-    return NULL; // Not found
+    pthread_mutex_unlock(&client_mutex);
+    printf("No available slots for client '%s'.\n", username);
+    return 0;
 }
 
 /**
  * @brief Removes a client from the client list.
- *
- * @param sockfd The socket file descriptor of the client to remove.
  */
 void removeClient(int sockfd) {
+    pthread_mutex_lock(&client_mutex);
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (clients[i].sockfd == sockfd) {
-            clients[i].sockfd = -1; // Mark slot as unused
+            clients[i].sockfd = -1;
             memset(clients[i].username, 0, sizeof(clients[i].username));
-            return;
+            break;
         }
     }
+    pthread_mutex_unlock(&client_mutex);
+    printf("Client on sockfd %d removed.\n", sockfd);
 }
 
 /**
- * @brief Manages multiple attempts to set the username for the client.
- *
- * @param sockfd The client's socket file descriptor.
- * @return int Returns 1 if a username is successfully set, 0 if an error occurs.
+ * @brief Handles setting a username for the client.
  */
 int attemptToSetUsername(int sockfd) {
-    char message[100];
+    char username[100];
     char response[10];
 
     while (1) {
-        // Receive the username attempt from the client
-        int bytes_received = recv(sockfd, message, sizeof(message) - 1, 0);
+        int bytes_received = recv(sockfd, username, sizeof(username) - 1, 0);
         if (bytes_received > 0) {
-            message[bytes_received] = '\0'; // Null-terminate the received message
-
-            // Validate and set the username
-            if (validateAndSetUsername(sockfd, message)) {
-                printf("Added client '%s' with sockfd %d\n", message, sockfd);
-                strcpy(response, "1"); // Success
+            username[bytes_received] = '\0'; // Null-terminate
+            if (validateAndSetUsername(sockfd, username)) {
+                printf("Client '%s' connected on sockfd %d.\n", username, sockfd);
+                strcpy(response, "1");
                 send(sockfd, response, strlen(response), 0);
-                return 1; // Success
+                return 1;
             } else {
-                printf("Username '%s' is invalid or already taken\n", message);
-                strcpy(response, "0"); // Failure
+                strcpy(response, "0");
                 send(sockfd, response, strlen(response), 0);
             }
         } else {
-            perror("Receive failed or client disconnected");
+            if (bytes_received == 0) {
+                printf("Client on sockfd %d disconnected during username setup.\n", sockfd);
+            } else {
+                perror("Receive failed during username setup");
+            }
             close(sockfd);
-            return 0; // Error
+            return 0;
         }
     }
 }
 
 /**
- * @brief Handles a client's connection and activities.
- *
- * @param sockfd The client's socket file descriptor.
+ * @brief Receives messages from the client.
  */
-void handleClient(int sockfd) {
+void *recvMessages(void *arg) {
+    int sockfd = *(int *)arg;
+    free(arg);
+    char buffer[300];
 
-    printf("Handling client on socket: %d\n", sockfd);
+    while (1) {
+        memset(buffer, 0, sizeof(buffer));
+        int bytesReceived = recv(sockfd, buffer, sizeof(buffer) - 1, 0);
 
-    if (attemptToSetUsername(sockfd)) {
-        const char *username = findUsernameBySockfd(sockfd);
-        printf("Client with sockfd %d successfully set username '%s'\n", sockfd, username);
-    } else {
-        printf("Failed to set username for client on sockfd %d\n", sockfd);
-        close(sockfd); // Close the socket if username setup fails
-        return;
+        if (bytesReceived > 0) {
+            buffer[bytesReceived] = '\0';
+            printf("Message from client %d: %s\n", sockfd, buffer);
+        } else if (bytesReceived == 0) {
+            printf("Client on sockfd %d disconnected.\n", sockfd);
+            close(sockfd);
+            removeClient(sockfd);
+            pthread_exit(NULL);
+        } else {
+            perror("Receive failed");
+            close(sockfd);
+            removeClient(sockfd);
+            pthread_exit(NULL);
+        }
     }
-
-    // TODO: Add further handling for the client after setting username
 }
 
+/**
+ * @brief Handles a client connection.
+ */
+void *handleClientServer(void *arg) {
+    int sockfd = *(int *)arg;
 
+    if (attemptToSetUsername(sockfd)) {
+        printf("Username set for client on sockfd %d.\n", sockfd);
+
+        // Start receiving messages from the client
+        recvMessages(arg);
+    } else {
+        printf("Failed to set username for client on sockfd %d. Disconnecting.\n", sockfd);
+        close(sockfd);
+    }
+
+    pthread_exit(NULL);
+}
+
+/**
+ * @brief Main server loop to handle incoming connections.
+ */
+void serverLoop(int serverSockfd) {
+    struct sockaddr_in client_addr;
+    socklen_t addrlen = sizeof(client_addr);
+
+    printf("Server is running. Waiting for connections...\n");
+
+    while (1) {
+        int clientSockfd = accept(serverSockfd, (struct sockaddr *)&client_addr, &addrlen);
+        if (clientSockfd < 0) {
+            perror("Accept failed");
+            continue;
+        }
+
+        printf("New client connected: %d\n", clientSockfd);
+
+        pthread_t client_thread;
+        int *sock_ptr = malloc(sizeof(int));
+        *sock_ptr = clientSockfd;
+
+        if (pthread_create(&client_thread, NULL, handleClientServer, sock_ptr) != 0) {
+            perror("Thread creation failed");
+            close(clientSockfd);
+            free(sock_ptr);
+        }
+    }
+}
